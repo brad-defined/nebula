@@ -324,6 +324,16 @@ func (lh *LightHouse) parseLighthouses(c *config.C, tunCidr *net.IPNet, lhMap ma
 }
 
 func (lh *LightHouse) loadStaticMap(c *config.C, tunCidr *net.IPNet, staticList map[iputil.VpnIp]struct{}) error {
+	oldShm := c.OldGetMap("static_host_map", map[interface{}]interface{}{})
+	for k := range oldShm {
+		rip := net.ParseIP(fmt.Sprintf("%v", k))
+		if rip != nil {
+			if tunCidr.Contains(rip) {
+				lh.resetStaticRemotes(iputil.Ip2VpnIp(rip))
+			}
+		}
+	}
+
 	shm := c.GetMap("static_host_map", map[interface{}]interface{}{})
 	i := 0
 
@@ -457,6 +467,12 @@ func (lh *LightHouse) DeleteVpnIp(vpnIp iputil.VpnIp) {
 	lh.Unlock()
 }
 
+func (lh *LightHouse) resetStaticRemotes(vpnIp iputil.VpnIp) {
+	lh.Lock()
+	lh.unlockedResetRemoteList(vpnIp)
+	lh.Unlock()
+}
+
 // AddStaticRemote adds a static host entry for vpnIp as ourselves as the owner
 // We are the owner because we don't want a lighthouse server to advertise for static hosts it was configured with
 // And we don't want a lighthouse query reply to interfere with our learned cache if we are a client
@@ -495,6 +511,14 @@ func (lh *LightHouse) unlockedGetRemoteList(vpnIp iputil.VpnIp) *RemoteList {
 		lh.addrMap[vpnIp] = am
 	}
 	return am
+}
+
+func (lh *LightHouse) unlockedResetRemoteList(vpnIp iputil.VpnIp) {
+	am, ok := lh.addrMap[vpnIp]
+	if ok {
+		am = NewRemoteList()
+		lh.addrMap[vpnIp] = am
+	}
 }
 
 // unlockedShouldAddV4 checks if to is allowed by our allow list

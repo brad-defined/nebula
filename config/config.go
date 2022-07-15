@@ -225,6 +225,21 @@ func (c *C) GetMap(k string, d map[interface{}]interface{}) map[interface{}]inte
 	return v
 }
 
+// OldGetMap will get the map for k or return the default d if not found or invalid from the old settings
+func (c *C) OldGetMap(k string, d map[interface{}]interface{}) map[interface{}]interface{} {
+	r := c.OldGet(k)
+	if r == nil {
+		return d
+	}
+
+	v, ok := r.(map[interface{}]interface{})
+	if !ok {
+		return d
+	}
+
+	return v
+}
+
 // GetInt will get the int for k or return the default d if not found or invalid
 func (c *C) GetInt(k string, d int) int {
 	r := c.GetString(k, strconv.Itoa(d))
@@ -265,6 +280,10 @@ func (c *C) GetDuration(k string, d time.Duration) time.Duration {
 
 func (c *C) Get(k string) interface{} {
 	return c.get(k, c.Settings)
+}
+
+func (c *C) OldGet(k string) interface{} {
+	return c.get(k, c.oldSettings)
 }
 
 func (c *C) IsSet(k string) bool {
