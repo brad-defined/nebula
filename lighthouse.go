@@ -514,11 +514,7 @@ func (lh *LightHouse) unlockedGetRemoteList(vpnIp iputil.VpnIp) *RemoteList {
 }
 
 func (lh *LightHouse) unlockedResetRemoteList(vpnIp iputil.VpnIp) {
-	am, ok := lh.addrMap[vpnIp]
-	if ok {
-		am = NewRemoteList()
-		lh.addrMap[vpnIp] = am
-	}
+	delete(lh.addrMap, vpnIp)
 }
 
 // unlockedShouldAddV4 checks if to is allowed by our allow list
