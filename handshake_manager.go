@@ -55,6 +55,9 @@ type HandshakeManager struct {
 
 	// can be used to trigger outbound handshake for the given vpnIp
 	trigger chan iputil.VpnIp
+
+	// Signature of certs that require re-handshaking
+	rehandshakeSigsChan chan string
 }
 
 func NewHandshakeManager(l *logrus.Logger, tunCidr *net.IPNet, preferredRanges []*net.IPNet, mainHostMap *HostMap, lightHouse *LightHouse, outside *udp.Conn, config HandshakeConfig) *HandshakeManager {
@@ -65,6 +68,7 @@ func NewHandshakeManager(l *logrus.Logger, tunCidr *net.IPNet, preferredRanges [
 		outside:                outside,
 		config:                 config,
 		trigger:                make(chan iputil.VpnIp, config.triggerBuffer),
+		rehandshakeSigsChan:    make(chan string, 100),
 		OutboundHandshakeTimer: NewSystemTimerWheel(config.tryInterval, hsTimeout(config.retries, config.tryInterval)),
 		messageMetrics:         config.messageMetrics,
 		metricInitiated:        metrics.GetOrRegisterCounter("handshake_manager.initiated", nil),
@@ -73,7 +77,14 @@ func NewHandshakeManager(l *logrus.Logger, tunCidr *net.IPNet, preferredRanges [
 	}
 }
 
-func (c *HandshakeManager) Run(ctx context.Context, f udp.EncWriter) {
+func (c *HandshakeManager) StartRehandshakeFor(sig string) {
+	c.l.Infof("BRAD: StartRehandshakeFor called")
+	go func() {
+		c.rehandshakeSigsChan <- sig
+	}()
+}
+
+func (c *HandshakeManager) Run(ctx context.Context, f udp.EncWriter, newInitiatorConnState func() *ConnectionState) {
 	clockSource := time.NewTicker(c.config.tryInterval)
 	defer clockSource.Stop()
 
@@ -85,6 +96,68 @@ func (c *HandshakeManager) Run(ctx context.Context, f udp.EncWriter) {
 			c.handleOutbound(vpnIP, f, true)
 		case now := <-clockSource.C:
 			c.NextOutboundHandshakeTimerTick(now, f)
+		case sig := <-c.rehandshakeSigsChan:
+			c.rehandshake(sig, f, newInitiatorConnState)
+		}
+	}
+}
+
+func (c *HandshakeManager) rehandshake(sig string, f udp.EncWriter, newInitiatorConnState func() *ConnectionState) {
+	c.l.Infof("BRAD: HandshakeManager starting Rehandshake")
+	// Find HostInfos that require re-handshaking
+	var hostIps vpnIpSet
+	c.mainHostMap.Lock()
+	if hostIpsSet, ok := c.mainHostMap.HostsByCert[sig]; ok {
+		hostIps = hostIpsSet
+		delete(c.mainHostMap.HostsByCert, sig)
+	}
+	c.mainHostMap.Unlock()
+	c.l.Infof("BRAD: Rehandshake found %v hosts to rehandshake with", len(hostIps))
+	if len(hostIps) > 0 {
+		handshakePkt := make([]byte, 0, mtu)
+		cb := make([]byte, 12)
+		out := make([]byte, 0, mtu)
+		// Perform a re-handshake
+		for ip := range hostIps {
+			cb = cb[:12]
+			out = out[:mtu]
+			// Initialize the HostInfo.NextConnectionState
+			hi, err := c.mainHostMap.QueryVpnIp(ip)
+			if err != nil {
+				c.l.WithError(err).Infof("BRAD: rehandshake failed to find host info in main host map")
+				// Log the error?
+				continue
+			}
+			hi.Lock()
+			if hi.NextConnectionState == nil {
+				hi.NextConnectionState = newInitiatorConnState()
+			}
+			// Build a Noise Handshake packet
+			// Noise Handshake is renewed as a new Handshake, but sent as a protobuf
+			// field in a Control message over an existing Nebula connection.
+			msg, _, _, err := hi.NextConnectionState.H.WriteMessage(handshakePkt[:0], nil)
+
+			if err != nil {
+				// Log the thing
+				hi.Unlock()
+				c.l.WithError(err).Infof("BRAD: rehandshake failed WriteMessage the new handshake")
+				continue
+			}
+			req := NebulaControl{
+				Type:      NebulaControl_ReHandshakeRequest,
+				Cert:      hi.NextConnectionState.certState.rawCertificateNoKey,
+				Handshake: msg,
+			}
+			hi.Unlock()
+			reqBytes, err := req.Marshal()
+			if err != nil {
+				// Log the thing
+				c.l.WithError(err).Infof("BRAD: rehandshake failed to marshal the payload")
+				continue
+			}
+			// Send the handshake
+			c.l.Infof("BRAD: Rehandshake rehandshake with %v", hi.vpnIp)
+			f.SendMessageToVpnIp(header.Control, 0, hi.vpnIp, reqBytes, cb, out)
 		}
 	}
 }
@@ -359,6 +432,7 @@ func (c *HandshakeManager) CheckAndComplete(hostinfo *HostInfo, handshakePacket 
 		delete(c.mainHostMap.Hosts, existingHostInfo.vpnIp)
 		delete(c.mainHostMap.Indexes, existingHostInfo.localIndexId)
 		delete(c.mainHostMap.RemoteIndexes, existingHostInfo.remoteIndexId)
+		delete(c.mainHostMap.HostsByCert, existingHostInfo.ConnectionState.GetLocalCertSignature())
 		for _, relayIdx := range existingHostInfo.relayState.CopyRelayForIdxs() {
 			delete(c.mainHostMap.Relays, relayIdx)
 		}
@@ -383,6 +457,7 @@ func (c *HandshakeManager) Complete(hostinfo *HostInfo, f *Interface) {
 		delete(c.mainHostMap.Hosts, existingHostInfo.vpnIp)
 		delete(c.mainHostMap.Indexes, existingHostInfo.localIndexId)
 		delete(c.mainHostMap.RemoteIndexes, existingHostInfo.remoteIndexId)
+		delete(c.mainHostMap.HostsByCert, existingHostInfo.ConnectionState.GetLocalCertSignature())
 		for _, relayIdx := range existingHostInfo.relayState.CopyRelayForIdxs() {
 			delete(c.mainHostMap.Relays, relayIdx)
 		}

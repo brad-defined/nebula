@@ -161,10 +161,9 @@ func TestFirewall_Drop(t *testing.T) {
 		},
 	}
 	h := HostInfo{
-		ConnectionState: &ConnectionState{
-			peerCert: &c,
-		},
-		vpnIp: iputil.Ip2VpnIp(ipNet.IP),
+		ConnectionState: &ConnectionState{},
+		peerCert:        &c,
+		vpnIp:           iputil.Ip2VpnIp(ipNet.IP),
 	}
 	h.CreateRemoteCIDR(&c)
 
@@ -334,10 +333,9 @@ func TestFirewall_Drop2(t *testing.T) {
 		},
 	}
 	h := HostInfo{
-		ConnectionState: &ConnectionState{
-			peerCert: &c,
-		},
-		vpnIp: iputil.Ip2VpnIp(ipNet.IP),
+		ConnectionState: &ConnectionState{},
+		peerCert:        &c,
+		vpnIp:           iputil.Ip2VpnIp(ipNet.IP),
 	}
 	h.CreateRemoteCIDR(&c)
 
@@ -349,9 +347,8 @@ func TestFirewall_Drop2(t *testing.T) {
 		},
 	}
 	h1 := HostInfo{
-		ConnectionState: &ConnectionState{
-			peerCert: &c1,
-		},
+		ConnectionState: &ConnectionState{},
+		peerCert:        &c1,
 	}
 	h1.CreateRemoteCIDR(&c1)
 
@@ -400,10 +397,9 @@ func TestFirewall_Drop3(t *testing.T) {
 		},
 	}
 	h1 := HostInfo{
-		ConnectionState: &ConnectionState{
-			peerCert: &c1,
-		},
-		vpnIp: iputil.Ip2VpnIp(ipNet.IP),
+		ConnectionState: &ConnectionState{},
+		peerCert:        &c1,
+		vpnIp:           iputil.Ip2VpnIp(ipNet.IP),
 	}
 	h1.CreateRemoteCIDR(&c1)
 
@@ -415,10 +411,9 @@ func TestFirewall_Drop3(t *testing.T) {
 		},
 	}
 	h2 := HostInfo{
-		ConnectionState: &ConnectionState{
-			peerCert: &c2,
-		},
-		vpnIp: iputil.Ip2VpnIp(ipNet.IP),
+		ConnectionState: &ConnectionState{},
+		peerCert:        &c2,
+		vpnIp:           iputil.Ip2VpnIp(ipNet.IP),
 	}
 	h2.CreateRemoteCIDR(&c2)
 
@@ -430,10 +425,9 @@ func TestFirewall_Drop3(t *testing.T) {
 		},
 	}
 	h3 := HostInfo{
-		ConnectionState: &ConnectionState{
-			peerCert: &c3,
-		},
-		vpnIp: iputil.Ip2VpnIp(ipNet.IP),
+		ConnectionState: &ConnectionState{},
+		peerCert:        &c3,
+		vpnIp:           iputil.Ip2VpnIp(ipNet.IP),
 	}
 	h3.CreateRemoteCIDR(&c3)
 
@@ -481,10 +475,9 @@ func TestFirewall_DropConntrackReload(t *testing.T) {
 		},
 	}
 	h := HostInfo{
-		ConnectionState: &ConnectionState{
-			peerCert: &c,
-		},
-		vpnIp: iputil.Ip2VpnIp(ipNet.IP),
+		ConnectionState: &ConnectionState{},
+		peerCert:        &c,
+		vpnIp:           iputil.Ip2VpnIp(ipNet.IP),
 	}
 	h.CreateRemoteCIDR(&c)
 

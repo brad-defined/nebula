@@ -233,9 +233,9 @@ func Test_NewConnectionManagerTest_DisconnectInvalid(t *testing.T) {
 	nc := newConnectionManager(ctx, l, ifce, 5, 10)
 	ifce.connectionManager = nc
 	hostinfo, _ := nc.hostMap.AddVpnIp(vpnIp, nil)
+	hostinfo.peerCert = &peerCert
 	hostinfo.ConnectionState = &ConnectionState{
 		certState: cs,
-		peerCert:  &peerCert,
 		H:         &noise.HandshakeState{},
 	}
 

@@ -289,6 +289,10 @@ func (f *Interface) reloadCA(c *config.C) {
 	f.l.WithField("fingerprints", f.caPool.GetFingerprints()).Info("Trusted CA certificates refreshed")
 }
 
+func (f *Interface) getLocalCert() *CertState {
+	return f.certState
+}
+
 func (f *Interface) reloadCertKey(c *config.C) {
 	// reload and check in all cases
 	cs, err := NewCertStateFromConfig(c)
@@ -305,7 +309,9 @@ func (f *Interface) reloadCertKey(c *config.C) {
 		return
 	}
 
+	oldCert := f.certState
 	f.certState = cs
+	f.handshakeManager.StartRehandshakeFor(string(oldCert.certificate.Signature))
 	f.l.WithField("cert", cs.certificate).Info("Client cert refreshed from disk")
 }
 

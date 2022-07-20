@@ -255,8 +255,8 @@ func (n *connectionManager) HandleDeletionTick(now time.Time) {
 		// If it comes around on deletion wheel and hasn't resolved itself, delete
 		if n.checkPendingDeletion(vpnIp) {
 			cn := ""
-			if hostinfo.ConnectionState != nil && hostinfo.ConnectionState.peerCert != nil {
-				cn = hostinfo.ConnectionState.peerCert.Details.Name
+			if hostinfo.ConnectionState != nil && hostinfo.peerCert != nil {
+				cn = hostinfo.peerCert.Details.Name
 			}
 			hostinfo.logger(n.l).
 				WithField("tunnelCheck", m{"state": "dead", "method": "active"}).

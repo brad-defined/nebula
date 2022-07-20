@@ -8,6 +8,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/flynn/noise"
 	"github.com/sirupsen/logrus"
 	"github.com/slackhq/nebula/config"
 	"github.com/slackhq/nebula/overlay"
@@ -308,7 +309,7 @@ func Main(c *config.C, configTest bool, buildVersion string, logger *logrus.Logg
 
 		ifce.reloadSendRecvError(c)
 
-		go handshakeManager.Run(ctx, ifce)
+		go handshakeManager.Run(ctx, ifce, func() *ConnectionState { return ifce.newConnectionState(ifce.l, true, noise.HandshakeIX, []byte{}, 0) })
 		go lightHouse.LhUpdateWorker(ctx, ifce)
 	}
 

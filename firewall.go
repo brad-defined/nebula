@@ -377,7 +377,7 @@ func (f *Firewall) Drop(packet []byte, fp firewall.Packet, incoming bool, h *Hos
 	}
 
 	// We now know which firewall table to check against
-	if !table.match(fp, incoming, h.ConnectionState.peerCert, caPool) {
+	if !table.match(fp, incoming, h.peerCert, caPool) {
 		f.metrics(incoming).droppedNoRule.Inc(1)
 		return ErrNoMatchingRule
 	}
@@ -442,7 +442,7 @@ func (f *Firewall) inConns(packet []byte, fp firewall.Packet, incoming bool, h *
 		}
 
 		// We now know which firewall table to check against
-		if !table.match(fp, c.incoming, h.ConnectionState.peerCert, caPool) {
+		if !table.match(fp, c.incoming, h.peerCert, caPool) {
 			if f.l.Level >= logrus.DebugLevel {
 				h.logger(f.l).
 					WithField("fwPacket", fp).

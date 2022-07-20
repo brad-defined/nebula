@@ -51,14 +51,13 @@ func TestControl_GetHostInfoByVpnIp(t *testing.T) {
 	remotes.unlockedPrependV4(0, NewIp4AndPort(remote1.IP, uint32(remote1.Port)))
 	remotes.unlockedPrependV6(0, NewIp6AndPort(remote2.IP, uint32(remote2.Port)))
 	hm.Add(iputil.Ip2VpnIp(ipNet.IP), &HostInfo{
-		remote:  remote1,
-		remotes: remotes,
-		ConnectionState: &ConnectionState{
-			peerCert: crt,
-		},
-		remoteIndexId: 200,
-		localIndexId:  201,
-		vpnIp:         iputil.Ip2VpnIp(ipNet.IP),
+		remote:          remote1,
+		remotes:         remotes,
+		ConnectionState: &ConnectionState{},
+		peerCert:        crt,
+		remoteIndexId:   200,
+		localIndexId:    201,
+		vpnIp:           iputil.Ip2VpnIp(ipNet.IP),
 		relayState: RelayState{
 			relays:        map[iputil.VpnIp]struct{}{},
 			relayForByIp:  map[iputil.VpnIp]*Relay{},
@@ -67,14 +66,13 @@ func TestControl_GetHostInfoByVpnIp(t *testing.T) {
 	})
 
 	hm.Add(iputil.Ip2VpnIp(ipNet2.IP), &HostInfo{
-		remote:  remote1,
-		remotes: remotes,
-		ConnectionState: &ConnectionState{
-			peerCert: nil,
-		},
-		remoteIndexId: 200,
-		localIndexId:  201,
-		vpnIp:         iputil.Ip2VpnIp(ipNet2.IP),
+		remote:          remote1,
+		remotes:         remotes,
+		ConnectionState: &ConnectionState{},
+		peerCert:        nil,
+		remoteIndexId:   200,
+		localIndexId:    201,
+		vpnIp:           iputil.Ip2VpnIp(ipNet2.IP),
 		relayState: RelayState{
 			relays:        map[iputil.VpnIp]struct{}{},
 			relayForByIp:  map[iputil.VpnIp]*Relay{},

@@ -200,7 +200,7 @@ func ixHandshakeStage1(f *Interface, addr *udp.Addr, via interface{}, packet []b
 	// handshake packet 2 from the initiator.
 	ci.window.Update(f.l, 2)
 
-	ci.peerCert = remoteCert
+	hostinfo.peerCert = remoteCert
 	ci.dKey = NewNebulaCipherState(dKey)
 	ci.eKey = NewNebulaCipherState(eKey)
 
@@ -486,7 +486,7 @@ func ixHandshakeStage2(f *Interface, addr *udp.Addr, via interface{}, hostinfo *
 	hostinfo.lastHandshakeTime = hs.Details.Time
 
 	// Store their cert and our symmetric keys
-	ci.peerCert = remoteCert
+	hostinfo.peerCert = remoteCert
 	ci.dKey = NewNebulaCipherState(dKey)
 	ci.eKey = NewNebulaCipherState(eKey)
 

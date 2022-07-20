@@ -46,6 +46,8 @@ type Relay struct {
 	PeerIp      iputil.VpnIp
 }
 
+type vpnIpSet map[iputil.VpnIp]struct{}
+
 type HostMap struct {
 	sync.RWMutex    //Because we concurrently read and write to our maps
 	name            string
@@ -53,6 +55,7 @@ type HostMap struct {
 	Relays          map[uint32]*HostInfo // Maps a Relay IDX to a Relay HostInfo object
 	RemoteIndexes   map[uint32]*HostInfo
 	Hosts           map[iputil.VpnIp]*HostInfo
+	HostsByCert     map[string]vpnIpSet
 	preferredRanges []*net.IPNet
 	vpnCIDR         *net.IPNet
 	metricsEnabled  bool
@@ -151,22 +154,25 @@ func (rs *RelayState) InsertRelay(ip iputil.VpnIp, idx uint32, r *Relay) {
 type HostInfo struct {
 	sync.RWMutex
 
-	remote            *udp.Addr
-	remotes           *RemoteList
-	promoteCounter    uint32
-	ConnectionState   *ConnectionState
-	handshakeStart    time.Time        //todo: this an entry in the handshake manager
-	HandshakeReady    bool             //todo: being in the manager means you are ready
-	HandshakeCounter  int              //todo: another handshake manager entry
-	HandshakeComplete bool             //todo: this should go away in favor of ConnectionState.ready
-	HandshakePacket   map[uint8][]byte //todo: this is other handshake manager entry
-	packetStore       []*cachedPacket  //todo: this is other handshake manager entry
-	remoteIndexId     uint32
-	localIndexId      uint32
-	vpnIp             iputil.VpnIp
-	recvError         int
-	remoteCidr        *cidr.Tree4
-	relayState        RelayState
+	remote              *udp.Addr
+	remotes             *RemoteList
+	promoteCounter      uint32
+	ConnectionState     *ConnectionState
+	NextConnectionState *ConnectionState
+	OldConnectionState  *ConnectionState
+	handshakeStart      time.Time        //todo: this an entry in the handshake manager
+	HandshakeReady      bool             //todo: being in the manager means you are ready
+	HandshakeCounter    int              //todo: another handshake manager entry
+	HandshakeComplete   bool             //todo: this should go away in favor of ConnectionState.ready
+	HandshakePacket     map[uint8][]byte //todo: this is other handshake manager entry
+	packetStore         []*cachedPacket  //todo: this is other handshake manager entry
+	remoteIndexId       uint32
+	localIndexId        uint32
+	vpnIp               iputil.VpnIp
+	recvError           int
+	remoteCidr          *cidr.Tree4
+	relayState          RelayState
+	peerCert            *cert.NebulaCertificate
 
 	// lastRebindCount is the other side of Interface.rebindCount, if these values don't match then we need to ask LH
 	// for a punch from the remote end of this tunnel. The goal being to prime their conntrack for our traffic just like
@@ -206,12 +212,14 @@ func NewHostMap(l *logrus.Logger, name string, vpnCIDR *net.IPNet, preferredRang
 	h := map[iputil.VpnIp]*HostInfo{}
 	i := map[uint32]*HostInfo{}
 	r := map[uint32]*HostInfo{}
+	c := map[string]vpnIpSet{}
 	relays := map[uint32]*HostInfo{}
 	m := HostMap{
 		name:            name,
 		Indexes:         i,
 		Relays:          relays,
 		RemoteIndexes:   r,
+		HostsByCert:     c,
 		Hosts:           h,
 		preferredRanges: preferredRanges,
 		vpnCIDR:         vpnCIDR,
@@ -226,10 +234,12 @@ func (hm *HostMap) EmitStats(name string) {
 	hostLen := len(hm.Hosts)
 	indexLen := len(hm.Indexes)
 	remoteIndexLen := len(hm.RemoteIndexes)
+	hostByCertLen := len(hm.HostsByCert)
 	relaysLen := len(hm.Relays)
 	hm.RUnlock()
 
 	metrics.GetOrRegisterGauge("hostmap."+name+".hosts", nil).Update(int64(hostLen))
+	metrics.GetOrRegisterGauge("hostmap."+name+".hostsByCert", nil).Update(int64(hostByCertLen))
 	metrics.GetOrRegisterGauge("hostmap."+name+".indexes", nil).Update(int64(indexLen))
 	metrics.GetOrRegisterGauge("hostmap."+name+".remoteIndexes", nil).Update(int64(remoteIndexLen))
 	metrics.GetOrRegisterGauge("hostmap."+name+".relayIndexes", nil).Update(int64(relaysLen))
@@ -276,7 +286,17 @@ func (hm *HostMap) GetIndexByVpnIp(vpnIp iputil.VpnIp) (uint32, error) {
 func (hm *HostMap) Add(ip iputil.VpnIp, hostinfo *HostInfo) {
 	hm.Lock()
 	hm.Hosts[ip] = hostinfo
+	hm.unlockedAddHostByCert(hostinfo)
 	hm.Unlock()
+}
+
+func (hm *HostMap) unlockedAddHostByCert(h *HostInfo) {
+	c, ok := hm.HostsByCert[h.ConnectionState.GetLocalCertSignature()]
+	if !ok {
+		c = map[iputil.VpnIp]struct{}{}
+		hm.HostsByCert[h.ConnectionState.GetLocalCertSignature()] = c
+	}
+	c[h.vpnIp] = struct{}{}
 }
 
 func (hm *HostMap) AddVpnIp(vpnIp iputil.VpnIp, init func(hostinfo *HostInfo)) (hostinfo *HostInfo, created bool) {
@@ -298,6 +318,7 @@ func (hm *HostMap) AddVpnIp(vpnIp iputil.VpnIp, init func(hostinfo *HostInfo)) (
 		}
 		hm.Lock()
 		hm.Hosts[vpnIp] = h
+		hm.unlockedAddHostByCert(h)
 		hm.Unlock()
 		return h, true
 	} else {
@@ -340,6 +361,7 @@ func (hm *HostMap) AddVpnIpHostInfo(vpnIp iputil.VpnIp, h *HostInfo) {
 	hm.Hosts[vpnIp] = h
 	hm.Indexes[h.localIndexId] = h
 	hm.RemoteIndexes[h.remoteIndexId] = h
+	hm.unlockedAddHostByCert(h)
 	hm.Unlock()
 
 	if hm.l.Level > logrus.DebugLevel {
@@ -439,6 +461,10 @@ func (hm *HostMap) unlockedDeleteHostInfo(hostinfo *HostInfo) {
 		delete(hm.Hosts, hostinfo2.vpnIp)
 		delete(hm.Indexes, hostinfo2.localIndexId)
 		delete(hm.RemoteIndexes, hostinfo2.remoteIndexId)
+
+		if c, ok := hm.HostsByCert[hostinfo2.ConnectionState.GetLocalCertSignature()]; ok {
+			delete(c, hostinfo.vpnIp)
+		}
 	}
 
 	delete(hm.Hosts, hostinfo.vpnIp)
@@ -452,6 +478,10 @@ func (hm *HostMap) unlockedDeleteHostInfo(hostinfo *HostInfo) {
 	delete(hm.RemoteIndexes, hostinfo.remoteIndexId)
 	if len(hm.RemoteIndexes) == 0 {
 		hm.RemoteIndexes = map[uint32]*HostInfo{}
+	}
+
+	if c, ok := hm.HostsByCert[hostinfo.ConnectionState.GetLocalCertSignature()]; ok {
+		delete(c, hostinfo.vpnIp)
 	}
 
 	if hm.l.Level >= logrus.DebugLevel {
@@ -525,13 +555,14 @@ func (hm *HostMap) queryVpnIp(vpnIp iputil.VpnIp, promoteIfce *Interface) (*Host
 // any other methods that might try to grab it again
 func (hm *HostMap) addHostInfo(hostinfo *HostInfo, f *Interface) {
 	if f.serveDns {
-		remoteCert := hostinfo.ConnectionState.peerCert
+		remoteCert := hostinfo.peerCert
 		dnsR.Add(remoteCert.Details.Name+".", remoteCert.Details.Ips[0].IP.String())
 	}
 
 	hm.Hosts[hostinfo.vpnIp] = hostinfo
 	hm.Indexes[hostinfo.localIndexId] = hostinfo
 	hm.RemoteIndexes[hostinfo.remoteIndexId] = hostinfo
+	hm.unlockedAddHostByCert(hostinfo)
 
 	if hm.l.Level >= logrus.DebugLevel {
 		hm.l.WithField("hostMap", m{"mapName": hm.name, "vpnIp": hostinfo.vpnIp, "mapTotalSize": len(hm.Hosts),
@@ -681,10 +712,7 @@ func (i *HostInfo) handshakeComplete(l *logrus.Logger, m *cachedPacketMetrics) {
 }
 
 func (i *HostInfo) GetCert() *cert.NebulaCertificate {
-	if i.ConnectionState != nil {
-		return i.ConnectionState.peerCert
-	}
-	return nil
+	return i.peerCert
 }
 
 func (i *HostInfo) SetRemote(remote *udp.Addr) {
@@ -766,10 +794,8 @@ func (i *HostInfo) logger(l *logrus.Logger) *logrus.Entry {
 	}
 
 	li := l.WithField("vpnIp", i.vpnIp)
-	if connState := i.ConnectionState; connState != nil {
-		if peerCert := connState.peerCert; peerCert != nil {
-			li = li.WithField("certName", peerCert.Details.Name)
-		}
+	if peerCert := i.peerCert; peerCert != nil {
+		li = li.WithField("certName", peerCert.Details.Name)
 	}
 
 	return li

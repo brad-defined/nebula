@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/flynn/noise"
 	"github.com/sirupsen/logrus"
 	"github.com/slackhq/nebula/config"
 	"github.com/slackhq/nebula/header"
@@ -112,7 +113,73 @@ func (rm *relayManager) HandleControlMsg(h *HostInfo, m *NebulaControl, f *Inter
 		rm.handleCreateRelayRequest(h, f, m)
 	case NebulaControl_CreateRelayResponse:
 		rm.handleCreateRelayResponse(h, f, m)
+	case NebulaControl_ReHandshakeRequest:
+		rm.handleReHandshakeRequest(h, f, m)
 	}
+
+}
+
+func (rm *relayManager) handleReHandshakeRequest(h *HostInfo, f *Interface, m *NebulaControl) {
+	rm.l.Infof("BRAD: handleReHandshakeRequest")
+	// like ixHandshakeStage1
+	// Type: ReHandshakeRequest
+	// Cert: rawCertificateNoKey
+	// Handshake: msg
+	ci := f.newConnectionState(f.l, false, noise.HandshakeIX, []byte{}, 0)
+	// Mark packet 1 as seen so it doesn't show up as missed
+	ci.window.Update(f.l, 1)
+
+	_, _, _, err := ci.H.ReadMessage(nil, m.Handshake)
+	if err != nil {
+		rm.l.WithError(err).Infof("BRAD: handleRehandshakeRequest failed to noise ReadMessage")
+		// TODO Return an error to let the other side know the rehandshake failed
+		return
+	}
+	remoteCert, err := RecombineCertAndValidate(ci.H, m.Cert, f.caPool)
+	if err != nil {
+		rm.l.WithError(err).Infof("BRAD: failed to RecombineCertAndValidate")
+		// TODO Return an error to let the other side know the rehandshake failed
+		return
+	}
+
+	// Verify details from the RemoteCert
+	// - It's the same IP
+	// - other?
+	certVpnIp := iputil.Ip2VpnIp(remoteCert.Details.Ips[0].IP)
+	if certVpnIp != h.vpnIp {
+		rm.l.WithFields(
+			logrus.Fields{
+				"certIp":     certVpnIp,
+				"hostinfoIp": h.vpnIp,
+			}).Infof("BRAD: handleHandshakeRequest cert IP is different than HostInfo IP")
+		return
+	}
+
+	// Build a ReHandshakeResponse message
+	// Handshake race detection?
+	// - handshakeStage1 packet
+	msg, dKey, eKey, err := ci.H.WriteMessage([]byte{}, nil)
+	req := NebulaControl{
+		Type:      NebulaControl_ReHandshakeResponse,
+		Cert:      f.certState.rawCertificateNoKey,
+		Handshake: msg,
+	}
+	reqBytes, err := req.Marshal()
+	if err != nil {
+		// Log the thing
+		rm.l.WithError(err).Infof("BRAD: handleHandshakeRequest failed to marshal the payload")
+		return
+	}
+	h.NextConnectionState = ci
+	ci.dKey = NewNebulaCipherState(dKey)
+	ci.eKey = NewNebulaCipherState(eKey)
+	f.SendMessageToVpnIp(header.Control, 0, h.vpnIp, reqBytes, make([]byte, 12), make([]byte, mtu))
+	// - Save the response packet, and send it again if we receive another request message?
+	// -- no, just be sure to save the diffie-helman results and re-send if we receive the (exact same) request.
+	//
+	// - Save the encryption state, and use it when receiving packets.
+	// - Trigger the Firewall to re-evaluate connections from this host, as its cert info may affect them
+	// - Update this host's cert info, as the handshake has succeeded.
 
 }
 

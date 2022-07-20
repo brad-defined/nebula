@@ -8,7 +8,6 @@ import (
 
 	"github.com/flynn/noise"
 	"github.com/sirupsen/logrus"
-	"github.com/slackhq/nebula/cert"
 )
 
 const ReplayWindow = 1024
@@ -18,7 +17,6 @@ type ConnectionState struct {
 	dKey                 *NebulaCipherState
 	H                    *noise.HandshakeState
 	certState            *CertState
-	peerCert             *cert.NebulaCertificate
 	initiator            bool
 	atomicMessageCounter uint64
 	window               *Bits
@@ -68,9 +66,20 @@ func (f *Interface) newConnectionState(l *logrus.Logger, initiator bool, pattern
 
 func (cs *ConnectionState) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m{
-		"certificate":     cs.peerCert,
+		//"certificate":     cs.peerCert,
 		"initiator":       cs.initiator,
 		"message_counter": atomic.LoadUint64(&cs.atomicMessageCounter),
 		"ready":           cs.ready,
 	})
+}
+
+func (cs *ConnectionState) GetLocalCertSignature() string {
+	if cs != nil {
+		if cs.certState != nil {
+			if cs.certState.certificate != nil {
+				return string(cs.certState.certificate.Signature)
+			}
+		}
+	}
+	return ""
 }

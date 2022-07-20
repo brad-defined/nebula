@@ -70,6 +70,9 @@ message NebulaControl {
     None = 0;
     CreateRelayRequest = 1;
     CreateRelayResponse = 2;
+    ReHandshakeRequest = 3;
+    ReHandshakeResponse = 4;
+    ReHandshakeComplete = 5;
   }
   MessageType Type = 1;
 
@@ -77,4 +80,6 @@ message NebulaControl {
   uint32 ResponderRelayIndex = 3;
   uint32 RelayToIp = 4;
   uint32 RelayFromIp = 5;
+  bytes  Cert = 6;
+  bytes  Handshake = 7;
 }
