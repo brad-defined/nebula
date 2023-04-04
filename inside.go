@@ -17,6 +17,7 @@ func (f *Interface) consumeInsidePacket(packet []byte, fwPacket *firewall.Packet
 		}
 		return
 	}
+	f.l.Info("BRAD: consumeInsidePacket")
 
 	// Ignore local broadcast packets
 	if f.dropLocalBroadcast && fwPacket.RemoteIP == f.localBroadcast {
@@ -45,6 +46,7 @@ func (f *Interface) consumeInsidePacket(packet []byte, fwPacket *firewall.Packet
 	}
 
 	hostinfo := f.getOrHandshake(fwPacket.RemoteIP)
+	f.l.Infof("BRAD: consumeInsidePacket found hostinfo: %v", hostinfo != nil)
 	if hostinfo == nil {
 		f.rejectInside(packet, out, q)
 		if f.l.Level >= logrus.DebugLevel {
@@ -69,6 +71,7 @@ func (f *Interface) consumeInsidePacket(packet []byte, fwPacket *firewall.Packet
 	}
 
 	dropReason := f.firewall.Drop(packet, *fwPacket, false, hostinfo, f.caPool, localCache)
+	f.l.Infof("BRAD: consumeInsidePacket checked firewall: %v", dropReason == nil)
 	if dropReason == nil {
 		f.sendNoMetrics(header.Message, 0, ci, hostinfo, nil, packet, nb, out, q)
 
@@ -293,6 +296,7 @@ func (f *Interface) SendVia(viaIfc interface{},
 	if err != nil {
 		via.logger(f.l).WithError(err).Info("Failed to WriteTo in sendVia")
 	}
+	f.connectionManager.RelayUsed(relay.LocalIndex)
 }
 
 func (f *Interface) sendNoMetrics(t header.MessageType, st header.MessageSubType, ci *ConnectionState, hostinfo *HostInfo, remote *udp.Addr, p, nb, out []byte, q int) {
@@ -345,6 +349,7 @@ func (f *Interface) sendNoMetrics(t header.MessageType, st header.MessageSubType
 		return
 	}
 
+	f.l.Infof("BRAD: sendNoMetrics remote=%v", remote != nil)
 	if remote != nil {
 		err = f.writers[q].WriteTo(out, remote)
 		if err != nil {
@@ -359,12 +364,15 @@ func (f *Interface) sendNoMetrics(t header.MessageType, st header.MessageSubType
 		}
 	} else {
 		// Try to send via a relay
-		for _, relayIP := range hostinfo.relayState.CopyRelayIps() {
+		relayIPs := hostinfo.relayState.CopyRelayIps()
+		f.l.WithField("relayIPs", relayIPs).Info("Attempt to send through these relays")
+		for _, relayIP := range relayIPs {
 			relayHostInfo, relay, err := f.hostMap.QueryVpnIpRelayFor(hostinfo.vpnIp, relayIP)
 			if err != nil {
 				hostinfo.logger(f.l).WithField("relay", relayIP).WithError(err).Info("sendNoMetrics failed to find HostInfo")
 				continue
 			}
+			f.l.Info("BRAD: sendNoMetrics: SendVia")
 			f.SendVia(relayHostInfo, relay, out, nb, fullOut[:header.Len+len(out)], true)
 			break
 		}
