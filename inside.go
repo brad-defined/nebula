@@ -17,7 +17,6 @@ func (f *Interface) consumeInsidePacket(packet []byte, fwPacket *firewall.Packet
 		}
 		return
 	}
-	f.l.Info("BRAD: consumeInsidePacket")
 
 	// Ignore local broadcast packets
 	if f.dropLocalBroadcast && fwPacket.RemoteIP == f.localBroadcast {
@@ -46,7 +45,6 @@ func (f *Interface) consumeInsidePacket(packet []byte, fwPacket *firewall.Packet
 	}
 
 	hostinfo := f.getOrHandshake(fwPacket.RemoteIP)
-	f.l.Infof("BRAD: consumeInsidePacket found hostinfo: %v", hostinfo != nil)
 	if hostinfo == nil {
 		f.rejectInside(packet, out, q)
 		if f.l.Level >= logrus.DebugLevel {
@@ -58,7 +56,7 @@ func (f *Interface) consumeInsidePacket(packet []byte, fwPacket *firewall.Packet
 	}
 	ci := hostinfo.ConnectionState
 
-	if ci.ready == false {
+	if !ci.ready {
 		// Because we might be sending stored packets, lock here to stop new things going to
 		// the packet queue.
 		ci.queueLock.Lock()
@@ -71,7 +69,6 @@ func (f *Interface) consumeInsidePacket(packet []byte, fwPacket *firewall.Packet
 	}
 
 	dropReason := f.firewall.Drop(packet, *fwPacket, false, hostinfo, f.caPool, localCache)
-	f.l.Infof("BRAD: consumeInsidePacket checked firewall: %v", dropReason == nil)
 	if dropReason == nil {
 		f.sendNoMetrics(header.Message, 0, ci, hostinfo, nil, packet, nb, out, q)
 
@@ -179,7 +176,11 @@ func (f *Interface) initHostInfo(hostinfo *HostInfo) {
 	hostinfo.ConnectionState = f.newConnectionState(f.l, true, noise.HandshakeIX, []byte{}, 0)
 }
 
-func (f *Interface) sendMessageNow(t header.MessageType, st header.MessageSubType, hostInfo *HostInfo, p, nb, out []byte) {
+func (f *Interface) sendMessageNow(t header.MessageType, st header.MessageSubType, hi any, p, nb, out []byte) {
+	hostInfo, ok := hi.(*HostInfo)
+	if !ok {
+		panic("incorrect hostInfo type argumetn to sendMessageNow")
+	}
 	fp := &firewall.Packet{}
 	err := newPacket(p, false, fp)
 	if err != nil {
@@ -217,19 +218,22 @@ func (f *Interface) SendMessageToVpnIp(t header.MessageType, st header.MessageSu
 		// the packet queue.
 		hostInfo.ConnectionState.queueLock.Lock()
 		if !hostInfo.ConnectionState.ready {
-			hostInfo.cachePacket(f.l, t, st, p, f.sendMessageToVpnIp, f.cachedPacketMetrics)
+			hostInfo.cachePacket(f.l, t, st, p, f.SendMessageToHostInfo, f.cachedPacketMetrics)
 			hostInfo.ConnectionState.queueLock.Unlock()
 			return
 		}
 		hostInfo.ConnectionState.queueLock.Unlock()
 	}
 
-	f.sendMessageToVpnIp(t, st, hostInfo, p, nb, out)
-	return
+	f.SendMessageToHostInfo(t, st, hostInfo, p, nb, out)
 }
 
-func (f *Interface) sendMessageToVpnIp(t header.MessageType, st header.MessageSubType, hostInfo *HostInfo, p, nb, out []byte) {
-	f.send(t, st, hostInfo.ConnectionState, hostInfo, p, nb, out)
+func (f *Interface) SendMessageToHostInfo(t header.MessageType, st header.MessageSubType, hostInfo any, p, nb, out []byte) {
+	if hi, ok := hostInfo.(*HostInfo); ok {
+		f.send(t, st, hi.ConnectionState, hi, p, nb, out)
+		return
+	}
+	panic("Incorrect type passed to SendMessageToHostInfo")
 }
 
 func (f *Interface) send(t header.MessageType, st header.MessageSubType, ci *ConnectionState, hostinfo *HostInfo, p, nb, out []byte) {
@@ -349,7 +353,6 @@ func (f *Interface) sendNoMetrics(t header.MessageType, st header.MessageSubType
 		return
 	}
 
-	f.l.Infof("BRAD: sendNoMetrics remote=%v", remote != nil)
 	if remote != nil {
 		err = f.writers[q].WriteTo(out, remote)
 		if err != nil {
@@ -364,27 +367,20 @@ func (f *Interface) sendNoMetrics(t header.MessageType, st header.MessageSubType
 		}
 	} else {
 		// Try to send via a relay
-		relayIPs := hostinfo.relayState.CopyRelayIps()
-		f.l.WithField("relayIPs", relayIPs).Info("Attempt to send through these relays")
-		for _, relayIP := range relayIPs {
+		for _, relayIP := range hostinfo.relayState.CopyRelayIps() {
 			relayHostInfo, relay, err := f.hostMap.QueryVpnIpRelayFor(hostinfo.vpnIp, relayIP)
 			if err != nil {
+				hostinfo.relayState.DeleteRelay(relayIP)
 				hostinfo.logger(f.l).WithField("relay", relayIP).WithError(err).Info("sendNoMetrics failed to find HostInfo")
 				continue
 			}
-			f.l.Info("BRAD: sendNoMetrics: SendVia")
 			f.SendVia(relayHostInfo, relay, out, nb, fullOut[:header.Len+len(out)], true)
 			break
 		}
 	}
-	return
 }
 
 func isMulticast(ip iputil.VpnIp) bool {
 	// Class D multicast
-	if (((ip >> 24) & 0xff) & 0xf0) == 0xe0 {
-		return true
-	}
-
-	return false
+	return (((ip >> 24) & 0xff) & 0xf0) == 0xe0
 }

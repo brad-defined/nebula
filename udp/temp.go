@@ -14,6 +14,7 @@ type EncWriter interface {
 		nocopy bool,
 	)
 	SendMessageToVpnIp(t header.MessageType, st header.MessageSubType, vpnIp iputil.VpnIp, p, nb, out []byte)
+	SendMessageToHostInfo(t header.MessageType, st header.MessageSubType, hostinfo any, p, nb, out []byte)
 	Handshake(vpnIp iputil.VpnIp)
 }
 
