@@ -16,6 +16,7 @@ import (
 	"github.com/slackhq/nebula/cert"
 	"github.com/slackhq/nebula/config"
 	"github.com/slackhq/nebula/firewall"
+	"github.com/slackhq/nebula/header"
 	"github.com/slackhq/nebula/iputil"
 	"github.com/slackhq/nebula/overlay"
 	"github.com/slackhq/nebula/udp"
@@ -96,6 +97,19 @@ const (
 	sendRecvErrorNever
 	sendRecvErrorPrivate
 )
+
+type EncWriter interface {
+	SendVia(via *HostInfo,
+		relay *Relay,
+		ad,
+		nb,
+		out []byte,
+		nocopy bool,
+	)
+	SendMessageToVpnIp(t header.MessageType, st header.MessageSubType, vpnIp iputil.VpnIp, p, nb, out []byte)
+	SendMessageToHostInfo(t header.MessageType, st header.MessageSubType, hostinfo *HostInfo, p, nb, out []byte)
+	Handshake(vpnIp iputil.VpnIp)
+}
 
 func (s sendRecvErrorConfig) ShouldSendRecvError(ip net.IP) bool {
 	switch s {
@@ -238,7 +252,7 @@ func (f *Interface) listenOut(i int) {
 
 	lhh := f.lightHouse.NewRequestHandler()
 	conntrackCache := firewall.NewConntrackCacheTicker(f.conntrackCacheTimeout)
-	li.ListenOut(f.readOutsidePackets, lhh.HandleRequest, conntrackCache, i)
+	li.ListenOut(readOutsidePackets(f), lhHandleRequest(lhh, f), conntrackCache, i)
 }
 
 func (f *Interface) listenIn(reader io.ReadWriteCloser, i int) {

@@ -176,11 +176,7 @@ func (f *Interface) initHostInfo(hostinfo *HostInfo) {
 	hostinfo.ConnectionState = f.newConnectionState(f.l, true, noise.HandshakeIX, []byte{}, 0)
 }
 
-func (f *Interface) sendMessageNow(t header.MessageType, st header.MessageSubType, hi any, p, nb, out []byte) {
-	hostInfo, ok := hi.(*HostInfo)
-	if !ok {
-		panic("incorrect hostInfo type argumetn to sendMessageNow")
-	}
+func (f *Interface) sendMessageNow(t header.MessageType, st header.MessageSubType, hostInfo *HostInfo, p, nb, out []byte) {
 	fp := &firewall.Packet{}
 	err := newPacket(p, false, fp)
 	if err != nil {
@@ -228,12 +224,8 @@ func (f *Interface) SendMessageToVpnIp(t header.MessageType, st header.MessageSu
 	f.SendMessageToHostInfo(t, st, hostInfo, p, nb, out)
 }
 
-func (f *Interface) SendMessageToHostInfo(t header.MessageType, st header.MessageSubType, hostInfo any, p, nb, out []byte) {
-	if hi, ok := hostInfo.(*HostInfo); ok {
-		f.send(t, st, hi.ConnectionState, hi, p, nb, out)
-		return
-	}
-	panic("Incorrect type passed to SendMessageToHostInfo")
+func (f *Interface) SendMessageToHostInfo(t header.MessageType, st header.MessageSubType, hostinfo *HostInfo, p, nb, out []byte) {
+	f.send(t, st, hostinfo.ConnectionState, hostinfo, p, nb, out)
 }
 
 func (f *Interface) send(t header.MessageType, st header.MessageSubType, ci *ConnectionState, hostinfo *HostInfo, p, nb, out []byte) {
@@ -254,15 +246,13 @@ func (f *Interface) sendTo(t header.MessageType, st header.MessageSubType, ci *C
 // nb is a buffer used to store the nonce value, re-used for performance reasons.
 // out is a buffer used to store the result of the Encrypt operation
 // q indicates which writer to use to send the packet.
-func (f *Interface) SendVia(viaIfc interface{},
-	relayIfc interface{},
+func (f *Interface) SendVia(via *HostInfo,
+	relay *Relay,
 	ad,
 	nb,
 	out []byte,
 	nocopy bool,
 ) {
-	via := viaIfc.(*HostInfo)
-	relay := relayIfc.(*Relay)
 	c := via.ConnectionState.messageCounter.Add(1)
 
 	out = header.Encode(out, header.Version, header.Message, header.MessageRelay, relay.RemoteIndex, c)

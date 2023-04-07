@@ -248,7 +248,7 @@ type cachedPacket struct {
 	packet         []byte
 }
 
-type packetCallback func(t header.MessageType, st header.MessageSubType, h any, p, nb, out []byte)
+type packetCallback func(t header.MessageType, st header.MessageSubType, h *HostInfo, p, nb, out []byte)
 
 type cachedPacketMetrics struct {
 	sent    metrics.Counter
